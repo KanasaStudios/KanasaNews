@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kanasa News</title>
+<meta name="description" content="Kanasa News mengumpulkan berita domestik dan internasional dari penerbit tepercaya. Semua artikel milik penerbit asli.">
+<meta property="og:title" content="Kanasa News">
+<meta property="og:description" content="Berita terpercaya, dikurasi dari sumber terbaik.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23000'/%3E%3Cpath d='M18 14v36M18 33l20-19M24 29l18 21' stroke='%23fff' stroke-width='5' fill='none'/%3E%3Ccircle cx='50' cy='16' r='4' fill='%23d2b898'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@200;300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Lewati ke konten</a>
+<div class="glow" aria-hidden="true"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="top"><div class="wrap">
+  <div class="bar">
+    <a class="logo" href="#/" aria-label="Kanasa News, beranda">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M14 8v48M14 34L46 8M24 28l24 28" stroke="#fff" stroke-width="5" fill="none"/></svg>
+      Kanasa News
+    </a>
+    <div class="tools">
+      <form class="search" id="searchForm" role="search">
+        <label for="q" class="skip" style="position:static;width:0;height:0;overflow:hidden;padding:0">Cari berita</label>
+        <input id="q" type="search" placeholder="Cari berita" autocomplete="off" maxlength="80">
+        <button type="submit" aria-label="Cari">&#8594;</button>
+      </form>
+      <button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="cats">Menu</button>
+    </div>
+  </div>
+  <nav class="cats" id="cats" aria-label="Kategori"><ul id="catList"></ul></nav>
+</div></header>
+
+<main id="main" class="wrap" tabindex="-1"></main>
+
+<footer><div class="wrap">
+  <div class="cols">
+    <div>
+      <h4>Kanasa News</h4>
+      <p>Agregator berita. Judul, kutipan singkat, dan tautan berasal dari penerbit asli; artikel lengkap tetap milik penerbit. Kanasa News tidak menyajikan berita agregasi sebagai liputan orisinal.</p>
+      <p>&copy; <span id="yr"></span> Kanasa News</p>
+    </div>
+    <div><h4>Kebijakan</h4><ul>
+      <li><a href="#/halaman/redaksi">Kebijakan redaksi</a></li>
+      <li><a href="#/halaman/sumber">Sumber dan atribusi</a></li>
+      <li><a href="#/halaman/koreksi">Koreksi dan penghapusan</a></li>
+      <li><a href="#/halaman/privasi">Privasi</a></li></ul></div>
+    <div><h4>Jelajahi</h4><ul>
+      <li><a href="#/kategori/nasional">Nasional</a></li>
+      <li><a href="#/kategori/internasional">Internasional</a></li>
+      <li><a href="#/">Terbaru</a></li></ul></div>
+  </div>
+</div></footer>
+
+<script>
+/* ---- Configuration (public values only: the publishable key is safe in the browser; RLS protects data) ---- */
+const SUPABASE_URL = 'https://cpghnkqloadwfgazsomf.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_NFjbh7jrDSWmZifCFIitDQ_30K8cFkf';
+const PAGE = 15;
+
+const $ = s => document.querySelector(s);
+const main = $('#main');
+const SEL = 'id,title,source_name,published_at,excerpt,language,country,is_breaking,article_categories(categories(slug,name,group_name))';
+let CATS = [];
+
+function h(tag, attrs, ...kids){
+  const e = document.createElement(tag);
+  for (const [k,v] of Object.entries(attrs||{})){
+    if (k==='class') e.className=v; else if (k.startsWith('on')) e.addEventListener(k.slice(2),v); else if (v!==false && v!=null) e.setAttribute(k,v);
+  }
+  for (const c of kids.flat()) if (c!=null && c!==false) e.append(c.nodeType?c:document.createTextNode(c));
+  return e;
+}
+async function api(path, count){
+  const res = await fetch(SUPABASE_URL+'/rest/v1/'+path, {headers:{apikey:SUPABASE_KEY, ...(count?{Prefer:'count=exact'}:{})}});
+  if (!res.ok) throw new Error('Gagal memuat data');
+  const total = count ? Number((res.headers.get('content-range')||'').split('/')[1]) : null;
+  return {rows: await res.json(), total};
+}
+const fmt = iso => {
+  if (!iso) return 'Waktu terbit tidak tersedia';
+  const d = new Date(iso), diff = (Date.now()-d)/60000;
+  if (diff>=0 && diff<60) return Math.max(1,Math.round(diff))+' menit lalu';
+  if (diff>=60 && diff<1440) return Math.round(diff/60)+' jam lalu';
+  return new Intl.DateTimeFormat('id-ID',{dateStyle:'long',timeStyle:'short',timeZone:'Asia/Jakarta'}).format(d)+' WIB';
+};
+const catsOf = a => (a.article_categories||[]).map(x=>x.categories).filter(Boolean);
+const loading = () => h('p',{class:'state',role:'status'},'Memuat…');
+const failed = () => h('p',{class:'state',role:'alert'},'Berita belum dapat dimuat. Silakan coba lagi sebentar lagi.');
+function setMeta(title, desc){
+  document.title = title ? title+' — Kanasa News' : 'Kanasa News';
+  if (desc) $('meta[name=description]').setAttribute('content', desc.slice(0,160));
+}
+function meta(a){
+  return h('div',{class:'meta'}, catsOf(a).slice(0,1).map(c=>h('span',{class:'chip'},c.name)), h('b',{},a.source_name), ' · ', fmt(a.published_at), a.language&&a.language!=='id' ? ' · '+a.language.toUpperCase():'');
+}
+function item(a, withExcerpt=true){
+  return h('li',{}, meta(a), h('h3',{},h('a',{href:'#/artikel/'+a.id},a.title)), withExcerpt&&a.excerpt?h('p',{},a.excerpt):null);
+}
+function secTitle(t, sub){ return [sub?h('div',{class:'eyebrow'},sub):null, h('h2',{class:'sec-title'},t), h('span',{class:'rule'})]; }
+
+/* ---- Views ---- */
+function groupQuery(group){ return `articles?select=${SEL.replace('article_categories(categories(','article_categories!inner(categories!inner(')}&article_categories.categories.group_name=eq.${group}&order=published_at.desc.nullslast&limit=6`; }
+
+async function home(){
+  setMeta('', null);
+  main.replaceChildren(loading());
+  try{
+    const [{rows:latest},{rows:brk},{rows:dom},{rows:intl}] = await Promise.all([
+      api(`articles?select=${SEL}&order=published_at.desc.nullslast&limit=5`),
+      api(`articles?select=id,title&is_breaking=eq.true&order=published_at.desc.nullslast&limit=1`),
+      api(groupQuery('domestic')), api(groupQuery('international'))
+    ]);
+    main.replaceChildren();
+    if (brk[0]) main.append(h('div',{class:'breaking',role:'region','aria-label':'Berita utama mendesak'},h('strong',{},'Breaking'),h('a',{href:'#/artikel/'+brk[0].id},brk[0].title)));
+    if (!latest.length){ main.append(h('p',{class:'state'},'Belum ada berita tersimpan. Sinkronisasi pertama akan segera berjalan.')); }
+    else{
+      const [lead,...rest]=latest;
+      main.append(h('div',{class:'lead'},
+        h('article',{}, meta(lead), h('h1',{},h('a',{href:'#/artikel/'+lead.id},lead.title)), lead.excerpt?h('p',{class:'exc'},lead.excerpt):null),
+        h('div',{class:'side','aria-label':'Berita lainnya'}, rest.map(a=>h('a',{href:'#/artikel/'+a.id},meta(a),h('h3',{},a.title))))));
+    }
+    main.append(h('section',{},secTitle('Berita terbaru','Diperbarui otomatis'),h('div',{id:'latest'})));
+    latestList($('#latest'));
+    main.append(h('div',{class:'two'},
+      h('section',{},secTitle('Nasional','Dalam negeri'),h('ul',{class:'list'},dom.map(a=>item(a,false)))),
+      h('section',{},secTitle('Internasional','Dunia'),h('ul',{class:'list'},intl.map(a=>item(a,false))))));
+    main.append(newsletter());
+  }catch(e){ main.replaceChildren(failed()); }
+}
+
+function latestList(box, base='', fixed=null){
+  let offset=0, total=null;
+  const state={lang:'',src:''};
+  const ul=h('ul',{class:'list'});
+  const status=h('p',{class:'state',role:'status'});
+  const btn=h('button',{class:'more',type:'button',onclick:()=>load(false)},'Muat lebih banyak');
+  const mk=(label,opts,key)=>{const s=h('select',{'aria-label':label,onchange:e=>{state[key]=e.target.value;load(true)}},h('option',{value:''},label));opts.forEach(([v,t])=>s.append(h('option',{value:v},t)));return s;};
+  const filters=h('div',{class:'filters'},
+    mk('Semua bahasa',[['id','Indonesia'],['en','English']],'lang'),
+    mk('Semua sumber',[],'src'));
+  box.replaceChildren(filters,ul,status,btn);
+  // populate source filter from stored articles' sources (public view of article.source_name)
+  api('articles?select=source_name&order=source_name&limit=1000').then(({rows})=>{
+    [...new Set(rows.map(r=>r.source_name))].forEach(n=>filters.children[1].append(h('option',{value:n},n)));
+  }).catch(()=>{});
+  async function load(reset){
+    if(reset){offset=0;ul.replaceChildren();}
+    status.textContent='Memuat…'; btn.disabled=true;
+    let q=`articles?select=${fixed?fixed.select:SEL}&order=published_at.desc.nullslast&limit=${PAGE}&offset=${offset}`+(fixed?fixed.filter:'')+base;
+    if(state.lang)q+='&language=eq.'+encodeURIComponent(state.lang);
+    if(state.src)q+='&source_name=eq.'+encodeURIComponent(state.src);
+    try{
+      const {rows,total:t}=await api(q,true); total=t; offset+=rows.length;
+      rows.forEach(a=>ul.append(item(a)));
+      status.textContent = total===0 ? 'Tidak ada berita yang cocok.' : `Menampilkan ${offset} dari ${total} berita`;
+      btn.disabled = offset>=total; btn.hidden = total===0;
+    }catch{status.textContent='Gagal memuat berita. Coba lagi.';btn.disabled=false;}
+  }
+  load(true);
+}
+
+async function category(slug){
+  main.replaceChildren(loading());
+  const cat=CATS.find(c=>c.slug===slug);
+  if(!cat){ main.replaceChildren(h('p',{class:'state'},'Kategori tidak ditemukan. ',h('a',{href:'#/'},'Kembali ke beranda'))); return; }
+  setMeta(cat.name,'Berita '+cat.name+' dari penerbit tepercaya.');
+  const box=h('div');
+  main.replaceChildren(h('div',{class:'crumbs'},h('a',{href:'#/'},'Beranda'),' / ',cat.name), h('section',{style:'padding-top:24px'},secTitle(cat.name,'Kategori'),box));
+  latestList(box,'',{select:SEL.replace('article_categories(categories(','article_categories!inner(categories!inner('),filter:'&article_categories.categories.slug=eq.'+encodeURIComponent(slug)});
+}
+
+async function search(term){
+  term=(term||'').replace(/[^\p{L}\p{N}\s-]/gu,' ').replace(/\s+/g,' ').trim().slice(0,80);
+  setMeta('Cari: '+term,null);
+  const box=h('div');
+  main.replaceChildren(h('section',{style:'padding-top:56px'},secTitle('Hasil pencarian',term?'“'+term+'”':'Cari'),box));
+  if(!term){box.append(h('p',{class:'state'},'Ketik kata kunci pada kolom pencarian.'));return;}
+  latestList(box,'&search=wfts(simple).'+encodeURIComponent(term));
+}
+
+async function article(id){
+  main.replaceChildren(loading());
+  if(!/^[0-9a-f-]{36}$/i.test(id)){main.replaceChildren(failed());return;}
+  try{
+    const {rows}=await api(`articles?id=eq.${id}&select=*,article_categories(categories(slug,name))`);
+    const a=rows[0];
+    if(!a){main.replaceChildren(h('p',{class:'state'},'Artikel tidak tersedia atau telah dihapus. ',h('a',{href:'#/'},'Kembali ke beranda')));return;}
+    const cs=catsOf(a);
+    setMeta(a.title,a.excerpt);
+    const kindLabel={aggregated:'Berita agregasi — bukan liputan orisinal Kanasa News',analysis:'Analisis redaksi Kanasa News',original:'Liputan orisinal Kanasa News'}[a.content_kind];
+    const url=location.href;
+    const related=cs[0]?(await api(`articles?select=id,title,source_name,published_at,article_categories!inner(categories!inner(slug))&article_categories.categories.slug=eq.${encodeURIComponent(cs[0].slug)}&id=neq.${a.id}&order=published_at.desc.nullslast&limit=5`)).rows:[];
+    main.replaceChildren(
+      h('div',{class:'crumbs'},h('a',{href:'#/'},'Beranda'),cs[0]?[' / ',h('a',{href:'#/kategori/'+cs[0].slug},cs[0].name)]:null),
+      h('article',{class:'art','style':'padding-top:8px'},
+        h('div',{},cs.map(c=>h('a',{class:'chip',href:'#/kategori/'+c.slug},c.name))),
+        h('h1',{},a.title),
+        h('div',{class:'meta'},'Sumber: ',h('b',{},a.source_name),a.author?[' · Penulis: ',a.author]:null,' · Terbit: ',fmt(a.published_at),a.language?' · Bahasa: '+a.language.toUpperCase():''),
+        h('span',{class:'kind'},kindLabel),
+        a.excerpt?h('div',{class:'box'},h('div',{class:'lbl'},'Kutipan dari feed penerbit'),h('p',{},a.excerpt)):h('div',{class:'box'},h('p',{},'Ringkasan tidak tersedia.')),
+        h('a',{class:'btn',href:a.canonical_url,target:'_blank',rel:'noopener noreferrer nofollow'},'Baca selengkapnya di '+a.source_name+' ↗'),
+        h('p',{class:'attr'},'Artikel lengkap adalah milik '+a.source_name+'. Kanasa News hanya menampilkan judul, kutipan singkat, dan tautan ke sumber asli. Ada kesalahan atau permintaan penghapusan? Lihat ',h('a',{href:'#/halaman/koreksi',style:'text-decoration:underline'},'kebijakan koreksi'),'.'),
+        h('div',{class:'share'},
+          h('button',{type:'button',onclick:async e=>{try{await navigator.clipboard.writeText(url);e.target.textContent='Tautan disalin'}catch{e.target.textContent='Gagal menyalin'}}},'Salin tautan'),
+          navigator.share?h('button',{type:'button',onclick:()=>navigator.share({title:a.title,url}).catch(()=>{})},'Bagikan'):null)),
+      related.length?h('section',{},secTitle('Berita terkait'),h('ul',{class:'list'},related.map(r=>item(r,false)))):null);
+  }catch{main.replaceChildren(failed());}
+}
+
+const PAGES={
+  redaksi:['Kebijakan redaksi',['Kanasa News adalah agregator berita. Kami mengumpulkan judul dan metadata dari feed resmi penerbit, menampilkannya dengan atribusi jelas, dan mengarahkan pembaca ke sumber asli.','Berita agregasi, analisis redaksi, dan liputan orisinal selalu diberi label yang berbeda.','Label “Breaking” hanya dipakai bila ditetapkan oleh editor atau aturan resmi, bukan otomatis.']],
+  sumber:['Sumber dan atribusi',['Kami hanya memakai RSS/Atom atau API sesuai ketentuan penerbit. Setiap artikel menampilkan nama penerbit, waktu terbit asli, dan tautan ke artikel asli.','Gambar tidak ditampilkan kecuali penggunaannya diizinkan. Konten berbayar tidak diambil dan artikel lengkap tidak diterbitkan ulang tanpa izin.']],
+  koreksi:['Koreksi dan penghapusan',['Jika Anda menemukan kesalahan, atau Anda pemilik hak cipta dan ingin konten dihapus, hubungi redaksi. Kami akan meninjau dan menanggapi permintaan yang sah.','Kontak redaksi: akan ditambahkan oleh administrator sebelum peluncuran publik.']],
+  privasi:['Privasi',['Situs ini tidak memakai pelacak pihak ketiga. Alamat email buletin hanya disimpan dengan persetujuan eksplisit dan dapat dihapus atas permintaan.']]
+};
+function page(k){
+  const p=PAGES[k]; if(!p){home();return;}
+  setMeta(p[0],null);
+  main.replaceChildren(h('div',{class:'prose'},h('h1',{},p[0]),h('span',{class:'rule'}),p[1].map(t=>h('p',{},t))));
+}
+
+function newsletter(){
+  const msg=h('div',{class:'msg',role:'status'});
+  const email=h('input',{type:'email',required:true,placeholder:'Alamat email',autocomplete:'email','aria-label':'Alamat email',maxlength:'254'});
+  const cb=h('input',{type:'checkbox',required:true,id:'consent'});
+  return h('section',{},secTitle('Buletin','Opsional'),h('div',{class:'news'},
+    h('p',{style:'margin:0;color:var(--muted);font-size:14px'},'Ringkasan berita pilihan. Berhenti berlangganan kapan saja.'),
+    h('form',{onsubmit:async e=>{e.preventDefault();msg.textContent='Mengirim…';
+      const r=await fetch(SUPABASE_URL+'/rest/v1/newsletter_subscribers',{method:'POST',headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({email:email.value.trim().toLowerCase(),consent:true})});
+      msg.textContent = r.ok?'Terima kasih. Email Anda tersimpan.':(r.status===409?'Email ini sudah terdaftar.':'Gagal mendaftar. Coba lagi.');
+      if(r.ok)e.target.reset();}},email,h('button',{type:'submit'},'Daftar')),
+    h('label',{for:'consent'},cb,'Saya setuju email saya disimpan untuk pengiriman buletin.'),msg));
+}
+
+/* ---- Navigation & routing ---- */
+function renderNav(active){
+  const ul=$('#catList'); ul.replaceChildren();
+  const add=(href,t,cur)=>ul.append(h('li',{},h('a',{href,'aria-current':cur?'page':null},t)));
+  add('#/','Terbaru',!active);
+  CATS.filter(c=>['nasional','politik-pemerintahan','ekonomi-bisnis','internasional','teknologi-digital','olahraga','hiburan-budaya','opini-analisis','sains','kesehatan'].includes(c.slug)).forEach(c=>add('#/kategori/'+c.slug,c.name,active===c.slug));
+}
+function route(){
+  const [a,b]=decodeURIComponent(location.hash.replace(/^#\/?/,'')).split('/');
+  $('#cats').classList.remove('open'); $('#menuBtn').setAttribute('aria-expanded','false');
+  renderNav(a==='kategori'?b:null);
+  if(a==='kategori')category(b); else if(a==='cari')search(b); else if(a==='artikel')article(b); else if(a==='halaman')page(b); else home();
+  window.scrollTo(0,0); main.focus({preventScroll:true});
+}
+$('#searchForm').addEventListener('submit',e=>{e.preventDefault();location.hash='#/cari/'+encodeURIComponent($('#q').value.trim());});
+$('#menuBtn').addEventListener('click',()=>{const o=$('#cats').classList.toggle('open');$('#menuBtn').setAttribute('aria-expanded',o);});
+$('#yr').textContent=new Date().getFullYear();
+window.addEventListener('hashchange',route);
+api('categories?select=slug,name,group_name,sort_order&order=sort_order').then(({rows})=>{CATS=rows;route();}).catch(()=>{route();});
+</script>
+</body>
+</html>
